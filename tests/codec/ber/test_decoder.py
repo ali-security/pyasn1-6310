@@ -449,6 +449,72 @@ class ObjectIdentifierDecoderTestCase(BaseTestCase):
             bytes((0x06, 0x13, 0x88, 0x37, 0x83, 0xC6, 0xDF, 0xD4, 0xCC, 0xB3, 0xFF, 0xFF, 0xFE, 0xF0, 0xB8, 0xD6, 0xB8, 0xCB, 0xE2, 0xB6, 0x47))
         ) == ((2, 999, 18446744073709551535184467440737095), b'')
 
+    def testExcessiveContinuationOctets(self):
+        """Test that OID arcs with excessive continuation octets are rejected."""
+        # Create a payload with 25 continuation octets (exceeds 20 limit)
+        # 0x81 bytes are continuation octets, 0x01 terminates
+        malicious_payload = bytes([0x06, 26]) + bytes([0x81] * 25) + bytes([0x01])
+        try:
+            decoder.decode(malicious_payload)
+        except error.PyAsn1Error:
+            pass
+        else:
+            assert 0, 'Excessive continuation octets tolerated'
+
+    def testMaxAllowedContinuationOctets(self):
+        """Test that OID arcs at the maximum continuation octets limit work."""
+        # Create a payload with exactly 20 continuation octets (at limit)
+        # This should succeed
+        payload = bytes([0x06, 21]) + bytes([0x81] * 20) + bytes([0x01])
+        try:
+            decoder.decode(payload)
+        except error.PyAsn1Error:
+            assert 0, 'Valid OID with 20 continuation octets rejected'
+
+    def testOneOverContinuationLimit(self):
+        """Test boundary: 21 continuation octets (one over limit) is rejected."""
+        payload = bytes([0x06, 22]) + bytes([0x81] * 21) + bytes([0x01])
+        try:
+            decoder.decode(payload)
+        except error.PyAsn1Error:
+            pass
+        else:
+            assert 0, '21 continuation octets tolerated (should be rejected)'
+
+    def testExcessiveContinuationInSecondArc(self):
+        """Test that limit applies to subsequent arcs, not just the first."""
+        # First arc: valid simple byte (0x55 = 85, decodes to arc 2.5)
+        # Second arc: excessive continuation octets
+        payload = bytes([0x06, 27]) + bytes([0x55]) + bytes([0x81] * 25) + bytes([0x01])
+        try:
+            decoder.decode(payload)
+        except error.PyAsn1Error:
+            pass
+        else:
+            assert 0, 'Excessive continuation in second arc tolerated'
+
+    def testMultipleArcsAtLimit(self):
+        """Test multiple arcs each at the continuation limit work correctly."""
+        # Two arcs, each with 20 continuation octets (both at limit)
+        arc1 = bytes([0x81] * 20) + bytes([0x01])  # 21 bytes
+        arc2 = bytes([0x81] * 20) + bytes([0x01])  # 21 bytes
+        payload = bytes([0x06, 42]) + arc1 + arc2
+        try:
+            decoder.decode(payload)
+        except error.PyAsn1Error:
+            assert 0, 'Multiple valid arcs at limit rejected'
+
+    def testExcessiveContinuationWithMaxBytes(self):
+        """Test with 0xFF continuation bytes (maximum value, not just 0x81)."""
+        # 0xFF bytes are also continuation octets (high bit set)
+        malicious_payload = bytes([0x06, 26]) + bytes([0xFF] * 25) + bytes([0x01])
+        try:
+            decoder.decode(malicious_payload)
+        except error.PyAsn1Error:
+            pass
+        else:
+            assert 0, 'Excessive 0xFF continuation octets tolerated'
+
 
 class RelativeOIDDecoderTestCase(BaseTestCase):
     def testOne(self):
@@ -517,6 +583,70 @@ class RelativeOIDDecoderTestCase(BaseTestCase):
         assert decoder.decode(
             bytes((0x0D, 0x13, 0x88, 0x37, 0x83, 0xC6, 0xDF, 0xD4, 0xCC, 0xB3, 0xFF, 0xFF, 0xFE, 0xF0, 0xB8, 0xD6, 0xB8, 0xCB, 0xE2, 0xB6, 0x47))
         ) == ((1079, 18446744073709551535184467440737095), b'')
+
+    def testExcessiveContinuationOctets(self):
+        """Test that RELATIVE-OID arcs with excessive continuation octets are rejected."""
+        # Create a payload with 25 continuation octets (exceeds 20 limit)
+        malicious_payload = bytes([0x0D, 26]) + bytes([0x81] * 25) + bytes([0x01])
+        try:
+            decoder.decode(malicious_payload)
+        except error.PyAsn1Error:
+            pass
+        else:
+            assert 0, 'Excessive continuation octets tolerated'
+
+    def testMaxAllowedContinuationOctets(self):
+        """Test that RELATIVE-OID arcs at the maximum continuation octets limit work."""
+        # Create a payload with exactly 20 continuation octets (at limit)
+        payload = bytes([0x0D, 21]) + bytes([0x81] * 20) + bytes([0x01])
+        try:
+            decoder.decode(payload)
+        except error.PyAsn1Error:
+            assert 0, 'Valid RELATIVE-OID with 20 continuation octets rejected'
+
+    def testOneOverContinuationLimit(self):
+        """Test boundary: 21 continuation octets (one over limit) is rejected."""
+        payload = bytes([0x0D, 22]) + bytes([0x81] * 21) + bytes([0x01])
+        try:
+            decoder.decode(payload)
+        except error.PyAsn1Error:
+            pass
+        else:
+            assert 0, '21 continuation octets tolerated (should be rejected)'
+
+    def testExcessiveContinuationInSecondArc(self):
+        """Test that limit applies to subsequent arcs, not just the first."""
+        # First arc: valid simple byte
+        # Second arc: excessive continuation octets
+        payload = bytes([0x0D, 27]) + bytes([0x55]) + bytes([0x81] * 25) + bytes([0x01])
+        try:
+            decoder.decode(payload)
+        except error.PyAsn1Error:
+            pass
+        else:
+            assert 0, 'Excessive continuation in second arc tolerated'
+
+    def testMultipleArcsAtLimit(self):
+        """Test multiple arcs each at the continuation limit work correctly."""
+        # Two arcs, each with 20 continuation octets (both at limit)
+        arc1 = bytes([0x81] * 20) + bytes([0x01])  # 21 bytes
+        arc2 = bytes([0x81] * 20) + bytes([0x01])  # 21 bytes
+        payload = bytes([0x0D, 42]) + arc1 + arc2
+        try:
+            decoder.decode(payload)
+        except error.PyAsn1Error:
+            assert 0, 'Multiple valid arcs at limit rejected'
+
+    def testExcessiveContinuationWithMaxBytes(self):
+        """Test with 0xFF continuation bytes (maximum value, not just 0x81)."""
+        # 0xFF bytes are also continuation octets (high bit set)
+        malicious_payload = bytes([0x0D, 26]) + bytes([0xFF] * 25) + bytes([0x01])
+        try:
+            decoder.decode(malicious_payload)
+        except error.PyAsn1Error:
+            pass
+        else:
+            assert 0, 'Excessive 0xFF continuation octets tolerated'
 
 
 class RealDecoderTestCase(BaseTestCase):
@@ -2029,6 +2159,122 @@ class NonStreamingCompatibilityTestCase(BaseTestCase):
             assert str(exc) == "error inside user function"
         else:
             raise AssertionError("decode() must not hide TypeError from inside user provided callback")
+
+
+class NestingDepthLimitTestCase(BaseTestCase):
+    """Test protection against deeply nested ASN.1 structures (CVE prevention)."""
+
+    def testIndefLenSequenceNesting(self):
+        """Deeply nested indefinite-length SEQUENCEs must raise PyAsn1Error."""
+        # Each \x30\x80 opens a new indefinite-length SEQUENCE
+        payload = b'\x30\x80' * 200
+        try:
+            decoder.decode(payload)
+        except error.PyAsn1Error:
+            pass
+        else:
+            assert False, 'Deeply nested indef-length SEQUENCEs not rejected'
+
+    def testIndefLenSetNesting(self):
+        """Deeply nested indefinite-length SETs must raise PyAsn1Error."""
+        # Each \x31\x80 opens a new indefinite-length SET
+        payload = b'\x31\x80' * 200
+        try:
+            decoder.decode(payload)
+        except error.PyAsn1Error:
+            pass
+        else:
+            assert False, 'Deeply nested indef-length SETs not rejected'
+
+    def testDefiniteLenNesting(self):
+        """Deeply nested definite-length SEQUENCEs must raise PyAsn1Error."""
+        inner = b'\x05\x00'  # NULL
+        for _ in range(200):
+            length = len(inner)
+            if length < 128:
+                inner = b'\x30' + bytes([length]) + inner
+            else:
+                length_bytes = length.to_bytes(
+                    (length.bit_length() + 7) // 8, 'big')
+                inner = b'\x30' + bytes([0x80 | len(length_bytes)]) + \
+                    length_bytes + inner
+        try:
+            decoder.decode(inner)
+        except error.PyAsn1Error:
+            pass
+        else:
+            assert False, 'Deeply nested definite-length SEQUENCEs not rejected'
+
+    def testNestingUnderLimitWorks(self):
+        """Nesting within the limit must decode successfully."""
+        inner = b'\x05\x00'  # NULL
+        for _ in range(50):
+            length = len(inner)
+            if length < 128:
+                inner = b'\x30' + bytes([length]) + inner
+            else:
+                length_bytes = length.to_bytes(
+                    (length.bit_length() + 7) // 8, 'big')
+                inner = b'\x30' + bytes([0x80 | len(length_bytes)]) + \
+                    length_bytes + inner
+        asn1Object, _ = decoder.decode(inner)
+        assert asn1Object is not None, 'Valid nested structure rejected'
+
+    def testSiblingsDontIncreaseDepth(self):
+        """Sibling elements at the same level must not inflate depth count."""
+        # SEQUENCE containing 200 INTEGER siblings - should decode fine
+        components = b'\x02\x01\x01' * 200  # 200 x INTEGER(1)
+        length = len(components)
+        length_bytes = length.to_bytes(
+            (length.bit_length() + 7) // 8, 'big')
+        payload = b'\x30' + bytes([0x80 | len(length_bytes)]) + \
+            length_bytes + components
+        asn1Object, _ = decoder.decode(payload)
+        assert asn1Object is not None, 'Siblings incorrectly rejected'
+
+    def testErrorMessageContainsLimit(self):
+        """Error message must indicate the nesting depth limit."""
+        payload = b'\x30\x80' * 200
+        try:
+            decoder.decode(payload)
+        except error.PyAsn1Error as exc:
+            assert 'nesting depth' in str(exc).lower(), \
+                'Error message missing depth info: %s' % exc
+        else:
+            assert False, 'Expected PyAsn1Error'
+
+    def testNoRecursionError(self):
+        """Must raise PyAsn1Error, not RecursionError."""
+        payload = b'\x30\x80' * 50000
+        try:
+            decoder.decode(payload)
+        except error.PyAsn1Error:
+            pass
+        except RecursionError:
+            assert False, 'Got RecursionError instead of PyAsn1Error'
+
+    def testMixedNesting(self):
+        """Mixed SEQUENCE and SET nesting must be caught."""
+        # Alternate SEQUENCE (0x30) and SET (0x31) with indef length
+        payload = b''
+        for i in range(200):
+            payload += b'\x30\x80' if i % 2 == 0 else b'\x31\x80'
+        try:
+            decoder.decode(payload)
+        except error.PyAsn1Error:
+            pass
+        else:
+            assert False, 'Mixed nesting not rejected'
+
+    def testWithSchema(self):
+        """Deeply nested structures must be caught even with schema."""
+        payload = b'\x30\x80' * 200
+        try:
+            decoder.decode(payload, asn1Spec=univ.Sequence())
+        except error.PyAsn1Error:
+            pass
+        else:
+            assert False, 'Deeply nested with schema not rejected'
 
 
 suite = unittest.TestLoader().loadTestsFromModule(sys.modules[__name__])
